@@ -22,43 +22,26 @@ or
 pnpm install
 ```
 
-### 2. Set Up Environment Variables
+### 2. Run the Development Server
 
-This project uses reCAPTCHA, which requires API keys. You'll need to create a `.env.local` file in the root of your project and add your keys.
+Once the dependencies are installed, you can start the Next.js development server:
 
-1.  Create the file:
-    ```bash
-        touch .env.local
-            ```
+```bash
+npm run dev
+```
 
-            2.  Add the following variables to `.env.local`, replacing the placeholder values with your actual reCAPTCHA keys from the Google Cloud Console:
+The application will start, and you can view it in your browser at [http://localhost:9002](http://localhost:9002). The server will automatically reload when you make changes to the code.
 
-                ```
-                    NEXT_PUBLIC_RECAPTCHA_SITE_KEY=YOUR_RECAPTCHA_SITE_KEY
-                        RECAPTCHA_SECRET_KEY=YOUR_RECAPTCHA_SECRET_KEY
-                            ```
+### 3. Build for Production
 
-                            ### 3. Run the Development Server
+When you're ready to create a production build of your application, you can run:
 
-                            Once the dependencies are installed and your environment variables are set, you can start the Next.js development server:
+```bash
+npm run build
+```
 
-                            ```bash
-                            npm run dev
-                            ```
+This will create an optimized build in the `.next` folder. You can then start the production server with:
 
-                            The application will start, and you can view it in your browser at [http://localhost:9002](http://localhost:9002). The server will automatically reload when you make changes to the code.
-
-                            ### 4. Build for Production
-
-                            When you're ready to create a production build of your application, you can run:
-
-                            ```bash
-                            npm run build
-                            ```
-
-                            This will create an optimized build in the `.next` folder. You can then start the production server with:
-
-                            ```bash
-                            npm run start
-                            ```
-                            
+```bash
+npm run start
+```

@@ -29,7 +29,10 @@ const nextConfig: NextConfig = {
         pathname: '/**',
       },
     ],
-  },
+  }, /**
+   * @see https://nextjs.org/docs/app/api-reference/next-config-js/allowedDevOrigins
+   */
+  allowedDevOrigins: process.env.NODE_ENV === 'development' ? ['http://localhost:9000'] : [],
 };
 
 export default nextConfig;
