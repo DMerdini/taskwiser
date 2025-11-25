@@ -6,7 +6,6 @@ import { useForm } from 'react-hook-form';
 import * as z from 'zod';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import ReCAPTCHA from 'react-google-recaptcha';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -23,6 +22,7 @@ import { useAuth, useFirestore } from '@/firebase';
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { cn } from '@/lib/utils';
 
 const formSchema = z
   .object({
@@ -32,6 +32,7 @@ const formSchema = z
       .string()
       .min(8, { message: 'Password must be at least 8 characters.' }),
     confirmPassword: z.string(),
+    honeypot: z.string().optional(), // Honeypot field
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords don't match.",
@@ -46,8 +47,6 @@ export function SignupForm() {
   const auth = useAuth();
   const db = useFirestore();
   const [loading, setLoading] = React.useState(false);
-  const [captchaToken, setCaptchaToken] = React.useState<string | null>(null);
-  const recaptchaRef = React.useRef<ReCAPTCHA>(null);
 
   const form = useForm<UserFormValue>({
     resolver: zodResolver(formSchema),
@@ -55,14 +54,18 @@ export function SignupForm() {
   });
 
   const onSubmit = async (data: UserFormValue) => {
-    if (!captchaToken) {
+    // 1. Check the honeypot field
+    if (data.honeypot) {
+      console.log('Bot submission detected!');
+      // Silently fail or show a generic error
       toast({
-        variant: 'destructive',
-        title: 'CAPTCHA Required',
-        description: 'Please complete the CAPTCHA to proceed.',
+        variant: "destructive",
+        title: "Sign Up Failed",
+        description: "An unexpected error occurred."
       });
       return;
     }
+
     if (!auth || !db) {
         toast({
             variant: 'destructive',
@@ -74,16 +77,6 @@ export function SignupForm() {
     setLoading(true);
 
     try {
-      const recaptchaResponse = await fetch('/api/auth/recaptcha', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: captchaToken }),
-      });
-
-      if (!recaptchaResponse.ok) {
-        throw new Error('reCAPTCHA verification failed.');
-      }
-      
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         data.email,
@@ -131,8 +124,6 @@ export function SignupForm() {
       });
     } finally {
       setLoading(false);
-      recaptchaRef.current?.reset();
-      setCaptchaToken(null);
     }
   };
 
@@ -218,17 +209,22 @@ export function SignupForm() {
               </FormItem>
             )}
           />
+
+          {/* Honeypot Field: Visually hidden but available to bots */}
+          <FormField
+            control={form.control}
+            name="honeypot"
+            render={({ field }) => (
+              <FormItem className="absolute w-px h-px overflow-hidden -m-px p-0 border-0">
+                <FormLabel>Leave this field blank</FormLabel>
+                <FormControl>
+                  <Input autoComplete="off" tabIndex={-1} {...field} />
+                </FormControl>
+              </FormItem>
+            )}
+          />
           
-          <div className="flex justify-center">
-            <ReCAPTCHA
-              ref={recaptchaRef}
-              sitekey={process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY!}
-              onChange={setCaptchaToken}
-            />
-          </div>
-
-
-          <Button disabled={loading || !captchaToken} className="w-full" type="submit">
+          <Button disabled={loading} className="w-full" type="submit">
             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Create Account
           </Button>
