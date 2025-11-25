@@ -1,0 +1,137 @@
+/**
+ * @fileoverview Firestore Security Rules for Prototyper.
+ *
+ * Core Philosophy:
+ * This ruleset prioritizes strong authorization based on user identity and ownership,
+ * while maintaining flexibility in data shapes for rapid prototyping. Schema validation
+ * is minimized to allow for quick iteration on the data model.
+ *
+ * Data Structure:
+ * - User profiles are stored in `/users/{userId}`, secured by ownership.
+ * - Tasks are stored in a flat `/tasks/{taskId}` collection, with each document
+ *   containing a `userId` field for ownership-based access control.
+ *
+ * Key Security Decisions:
+ * - Users can only read and write their own profiles.
+ * - `sysadmin` can read all user profiles.
+ * - `depadmin` can read profiles of users in their own department.
+ * - Tasks can only be created, updated, or deleted by their owner or an admin.
+ * - List operations are allowed only for owners of user-scoped data or authorized admins.
+ *
+ * Denormalization for Authorization:
+ * The `Task` entity denormalizes the `userId` field. This avoids costly `get()` calls
+ * to a separate `/users/{userId}` document to check ownership and enables simple,
+ * performant rules.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function getUserData(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data;
+    }
+
+    function isSysAdmin() {
+      return isSignedIn() && getUserData(request.auth.uid).role == 'sysadmin';
+    }
+
+    function isDepAdmin() {
+        return isSignedIn() && getUserData(request.auth.uid).role == 'depadmin';
+    }
+    
+    function isUserInSameDepartment(otherUserId) {
+        let currentUserData = getUserData(request.auth.uid);
+        let otherUserData = getUserData(otherUserId);
+        return currentUserData.department == otherUserData.department;
+    }
+
+    /**
+     * @description Enforces ownership-based access control for user profiles.
+     * @path /users/{userId}
+     * @allow (create) - User with UID 'user_abc' can create their profile document at /users/user_abc.
+     * @allow (get, update, delete) - User with UID 'user_abc' can read, update, or delete their profile document at /users/user_abc.
+     * @deny (create) - User with UID 'user_xyz' cannot create a profile document at /users/user_abc.
+     * @deny (update, delete) - User with UID 'user_xyz' cannot update or delete the profile document at /users/user_abc.
+     * @principle Enforces document ownership and validates relational integrity between the path and the document's 'uid' field.
+     */
+    match /users/{userId} {
+      
+      // Allow a user to create their own profile.
+      allow create: if isSignedIn() && isOwner(userId) && request.resource.data.uid == userId;
+
+      // SysAdmins can get any profile. DepAdmins can get profiles in their department. Users can get their own.
+      allow get: if isSignedIn() && (isOwner(userId) || isSysAdmin() || (isDepAdmin() && isUserInSameDepartment(userId)));
+
+      // SysAdmins can list all users. DepAdmins can list users in their department by querying.
+      allow list: if isSignedIn() && (isSysAdmin() || isDepAdmin());
+
+      // SysAdmins can update any profile. Users can only update their own display name, email and photoURL.
+      allow update: if isSignedIn() && (isSysAdmin() || (isDepAdmin() && isUserInSameDepartment(userId)) || (isOwner(userId) && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'email', 'photoURL']))));
+
+      // Allow a user to delete their own profile.
+      allow delete: if isSignedIn() && isOwner(userId);
+    }
+
+    /**
+     * @description Enforces ownership-based access control for tasks.
+     * @path /tasks/{taskId}
+     * @allow (create) - User with UID 'user_abc' can create a task document at /tasks/task_123 with task.userId == 'user_abc'.
+     * @allow (get, list) - Any signed-in user can read any task.
+     * @allow (update, delete) - User with UID 'user_abc' can update or delete the task document at /tasks/task_123 if task.userId == 'user_abc'.
+     * @deny (create) - User with UID 'user_xyz' cannot create a task document at /tasks/task_123 with task.userId == 'user_abc'.
+     * @deny (update, delete) - User with UID 'user_xyz' cannot update or delete the task document at /tasks/task_123 if task.userId == 'user_abc'.
+     * @principle Enforces document ownership for writes.  Allows public reads.
+     */
+    match /tasks/{taskId} {
+      function isMovingToDone() {
+        return request.resource.data.status == 'Done' && resource.data.status != 'Done';
+      }
+
+      // New status transition functions
+      function userCanUpdate() {
+        // User can move task from In Progress to To Be Reviewed
+        return resource.data.status == 'In Progress' && request.resource.data.status == 'To Be Reviewed';
+      }
+
+      function adminCanUpdate() {
+        let isStatusChange = resource.data.status != request.resource.data.status;
+        let allowedTargetStatuses = ['In Progress', 'Done', 'Deprecated'];
+        // Admin can change userId
+        if (request.resource.data.keys().hasAny(['userId'])) {
+          return true;
+        }
+        // Admin can move from 'To Be Reviewed' to specific statuses
+        if (isStatusChange && resource.data.status == 'To Be Reviewed') {
+          return request.resource.data.status in allowedTargetStatuses;
+        }
+        // Admin can move from any other status as well (except locked ones if any)
+        return isStatusChange;
+      }
+
+      allow get: if isSignedIn() && (isSysAdmin() || (isDepAdmin() && resource.data.department == getUserData(request.auth.uid).department) || isOwner(resource.data.userId));
+      
+      allow list: if isSysAdmin() || (isDepAdmin() && request.query.where[0] == ['department', '==', getUserData(request.auth.uid).department]) || (request.query.where[0] == ['userId', '==', request.auth.uid]);
+
+      allow create: if isSignedIn() && (isOwner(request.resource.data.userId) || isSysAdmin() || isDepAdmin());
+
+      allow update: if isSignedIn() && 
+                    ( (isSysAdmin() || isDepAdmin()) && adminCanUpdate() ) ||
+                    ( isOwner(resource.data.userId) && userCanUpdate() );
+
+      allow delete: if isSignedIn() && (isOwner(resource.data.userId) || isSysAdmin() || (isDepAdmin() && resource.data.department == getUserData(request.auth.uid).department));
+    }
+
+    match /departments/{departmentId} {
+        allow read, list: if isSignedIn();
+        allow create, update, delete: if isSignedIn() && isSysAdmin();
+    }
+  }
+}

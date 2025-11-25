@@ -1,0 +1,194 @@
+{
+  "entities": {
+    "UserProfile": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "UserProfile",
+      "type": "object",
+      "description": "Represents a user's profile in the system.",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The user's unique ID from Firebase Authentication."
+        },
+        "email": {
+          "type": "string",
+          "description": "The user's email address.",
+          "format": "email"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "The user's display name."
+        },
+        "photoURL": {
+            "type": "string",
+            "description": "The URL of the user's profile picture."
+        },
+        "role": {
+          "type": "string",
+          "description": "The user's role in the application.",
+          "enum": [
+            "user",
+            "admin",
+            "depadmin",
+            "sysadmin"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "description": "The approval status of the user's account.",
+          "enum": [
+            "pending",
+            "approved",
+            "suspended"
+          ]
+        },
+        "department": {
+          "type": "string",
+          "description": "The department the user belongs to."
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "displayName",
+        "role",
+        "status"
+      ]
+    },
+    "Task": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Task",
+      "type": "object",
+      "description": "Represents a single task item on the Kanban board.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Task entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name or title of the task."
+        },
+        "department": {
+          "type": "string",
+          "description": "The department the task belongs to."
+        },
+        "comments": {
+          "type": "string",
+          "description": "Detailed description or notes for the task, supports markdown."
+        },
+        "status": {
+          "type": "string",
+          "description": "The current status of the task on the Kanban board.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "userId": {
+          "type": "string",
+          "description": "The UID of the user who owns the task."
+        },
+        "order": {
+          "type": "number",
+          "description": "The display order of the task within its status column."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "The timestamp when the task was created.",
+          "format": "date-time"
+        },
+        "history": {
+          "type": "array",
+          "description": "History of task status changes.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "isReviewed": {
+          "type": "boolean",
+          "description": "Flag to indicate if a task was reviewed and returned to 'In Progress'."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "status",
+        "userId",
+        "order",
+        "createdAt"
+      ]
+    },
+    "Department": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Department",
+      "type": "object",
+      "description": "Represents a department in the organization.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the department."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the department."
+        },
+        "depcolor": {
+          "type": "string",
+          "description": "A hex color code for the department."
+        }
+      },
+      "required": ["id", "name", "depcolor"]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}",
+        "definition": {
+          "entityName": "UserProfile",
+          "schema": {
+            "$ref": "#/backend/entities/UserProfile"
+          },
+          "description": "Stores public profile information for each user, keyed by their UID.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The Firebase Authentication UID of the user."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/tasks/{taskId}",
+        "definition": {
+          "entityName": "Task",
+          "schema": {
+            "$ref": "#/backend/entities/Task"
+          },
+          "description": "Stores individual task items for all users. Includes denormalized 'userId' field for authorization independence.",
+          "params": [
+            {
+              "name": "taskId",
+              "description": "Unique identifier for the Task entity."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/departments/{departmentId}",
+        "definition": {
+            "entityName": "Department",
+            "schema": { "$ref": "#/backend/entities/Department" },
+            "description": "Stores department information."
+        }
+      }
+    ],
+    "reasoning": "The Firestore structure is designed to be simple and secure, leveraging path-based ownership for user profiles and a flat collection for tasks. This structure promotes authorization independence and efficient querying.\n\n1.  **User Profiles:** Stored in `/users/{userId}`, providing straightforward ownership-based security.\n2.  **Tasks:** Stored in a single `/tasks/{taskId}` collection. Each task contains the `userId` of its owner. While this collection is flat, it is secured by rules that enforce `userId == request.auth.uid` for creation and modification, fulfilling the QAP by preventing unauthorized access.\n3. **Departments**: Stored in a flat `/departments/{departmentId}` collection to manage organizational units.\n\nThis design avoids complex subcollections or hierarchical dependencies, making the security rules easier to understand, debug, and maintain.  It relies on denormalization of the `userId` within the `Task` entity to maintain authorization independence and enable secure list operations."
+  }
+}
